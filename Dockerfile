@@ -17,7 +17,7 @@ RUN apt-get update && apt-get install libdb-dev curl -y && \
 	curl -LO http://metagene.nig.ac.jp/metagene/mga_x86_64.tar.gz && \
 	tar -xvf mga_x86_64.tar.gz -C /usr/local/bin/ mga_linux_ia64 && \
 	conda update -y conda && \
-	conda install -y -c bioconda mcl=14.137 muscle blast perl-bioperl perl-file-which hmmer=3.1b2 perl-parallel-forkmanager perl-list-moreutils diamond && \
+	conda install -y -c bioconda mcl=14.137 muscle blast perl-bioperl perl-file-which hmmer=3.1b2 perl-parallel-forkmanager perl-list-moreutils diamond pyfasta && \
 	conda clean --yes --tarballs --packages --source-cache && \
 	apt-get purge -y --auto-remove curl ca-certificates && \
 	apt-get clean && \
