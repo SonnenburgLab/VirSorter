@@ -8,6 +8,7 @@ use File::Spec::Functions;
 use File::Path 'mkpath';
 use File::Which 'which';
 use Parallel::ForkManager;
+use feature 'say';
 
 # Script to generate a new db with putative new clusters
 # Argument 0 : fasta of custom phages
@@ -114,7 +115,7 @@ while(<$txt>){
 }
 close $txt;
 my %check_prot;
-my $prot_file=$tmp_dir."/Custom_phages_mga_prots.fasta";
+my $prot_file=$tmp_dir."Custom_phages_mga_prots.fasta";
 open my $faa,">",$prot_file;
 my $n=0;
 foreach my $id (sort {$order_contig{$a} <=> $order_contig{$b} } keys %predict){
@@ -178,15 +179,67 @@ foreach my $id (sort {$order_contig{$a} <=> $order_contig{$b} } keys %predict){
 	}
 }
 close $faa;
-# Clustering the proteins
-# - 1 - Hmmsearch vs the original db
+### OLD BELOW ###
+# # Clustering the proteins
+# # - 1 - Hmmsearch vs the original db
+# my $out_hmmsearch=$tmp_dir."New_prots_vs_Phagedb.tab";
+# my $out_hmmsearch_bis=$tmp_dir."New_prots_vs_Phagedb.out";
+# my $cmd_hmm_phage="$path_hmmsearch --tblout $out_hmmsearch --cpu $n_cpus -o $out_hmmsearch_bis --noali $db_phage $prot_file >> $log_out 2>> $log_err";
+# print "Step 0.9 : $cmd_hmm_phage\n";
+# `echo $cmd_hmm_phage >> $log_out 2>> $log_err`;
+# my $out=`$cmd_hmm_phage`;
+# print "$out\n";
+### OLD ABOVE ###
+### NEW BELOW ###
+# First, we split $prot_file into pieces, one per $n_cpus.
+# my $prot_file=$tmp_dir."/Custom_phages_mga_prots.fasta";
+my $filemax = $n_cpus - 1;
+my $cmd_split_fasta = "pyfasta split -n $n_cpus $prot_file";
+say "Splitting $prot_file into $n_cpus pieces...";
+`echo $cmd_split_fasta`;
+my $out = `$cmd_split_fasta`;
+say "\t$out";
+
+
 my $out_hmmsearch=$tmp_dir."New_prots_vs_Phagedb.tab";
 my $out_hmmsearch_bis=$tmp_dir."New_prots_vs_Phagedb.out";
-my $cmd_hmm_phage="$path_hmmsearch --tblout $out_hmmsearch --cpu $n_cpus -o $out_hmmsearch_bis --noali $db_phage $prot_file >> $log_out 2>> $log_err";
-print "Step 0.9 : $cmd_hmm_phage\n";
-`echo $cmd_hmm_phage >> $log_out 2>> $log_err`;
-my $out=`$cmd_hmm_phage`;
-print "$out\n";
+
+my $pm = Parallel::ForkManager->new($n_cpus);
+foreach my $iter (0 .. $filemax) {
+    $pm->start and next;
+    my $filenum = $iter;
+    if ($n_cpus > 10) {
+        $filenum = sprintf("%02d", $filenum);
+    }
+    my $process_file=$tmp_dir."Custom_phages_mga_prots.$filenum.fasta";
+    
+    my $out_hmmsearch_part=$tmp_dir."New_prots_vs_Phagedb.$filenum.tab";
+    my $out_hmmsearch_bis_part=$tmp_dir."New_prots_vs_Phagedb.$filenum.out";
+    my $cmd_hmm_phage="$path_hmmsearch --tblout $out_hmmsearch_part --cpu 0 -o $out_hmmsearch_bis_part "
+        . " --noali $db_phage $process_file >> $log_out 2>> $log_err";
+    print "Step 0.9 : $cmd_hmm_phage\n";
+    `echo $cmd_hmm_phage >> $log_out 2>> $log_err`;
+    my $out=`$cmd_hmm_phage`;
+    print "$out\n";
+
+    say "Finished Step 0.9 on $process_file";
+    $pm->finish;
+}
+$pm->wait_all_children;
+
+say "\nGenerating $out_hmmsearch ... ";
+my $cmd_combine = "cat $tmp_dir/New_prots_vs_Phagedb.*.tab > $out_hmmsearch; "
+    . "rm $tmp_dir/New_prots_vs_Phagedb.*.tab";
+$out = `$cmd_combine`;
+say "\t$out";
+
+say "\nGenerating $out_hmmsearch_bis ... ";
+my $cmd_combine_bis = "cat $tmp_dir/New_prots_vs_Phagedb.*.out > $out_hmmsearch_bis; "
+    . "rm $tmp_dir/New_prots_vs_Phagedb.*.out";
+$out = `$cmd_combine_bis`;
+say "\t$out";
+### NEW ABOVE ###
+
 open(HMM,"<$out_hmmsearch") || die ("pblm opening file $out_hmmsearch\n");
 my $score_th=200;
 my $evalue_th=0.0000000001;
