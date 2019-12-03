@@ -5,6 +5,9 @@ use autodie;
 use Bio::Seq;
 use File::Spec::Functions;
 use File::Which 'which';
+use FindBin '$Bin';
+use feature 'say';
+use Parallel::ForkManager;
 
 # Script to detect circular contigs, nett sequences, and predict genes with mga
 # Argument 0 : Fasta file of contigs
@@ -14,7 +17,9 @@ if (($ARGV[0] eq "-h") || ($ARGV[0] eq "--h") || ($ARGV[0] eq "-help" )|| ($ARGV
 # Argument 0 : Id du dataset
 # Argument 1 : Working dir
 # Argument 2 : Fasta file of contigs
-# Argument 3 : Threshold on the number of genes \n";
+# Argument 3 : Threshold on the number of genes 
+# Argument 4 : Number of CPUs
+# Argument 5 : Gene caller (mga or prodigal)\n";
 	die "\n";
 }
 
@@ -22,6 +27,9 @@ my $id                = $ARGV[0];
 my $tmp_dir           = $ARGV[1];
 my $fasta_contigs     = $ARGV[2];
 my $th_nb_genes       = $ARGV[3];
+my $n_cpus            = $ARGV[4];
+my $gene_caller       = $ARGV[5];
+my $path_to_prodigal  = which('prodigal');
 my $path_to_mga       = which('mga_linux_ia64');
 my $path_to_mga_bis   = which('mga');
 if ($path_to_mga eq ""){
@@ -34,13 +42,14 @@ my $circu_file        = catfile($tmp_dir, $id . "_circu.list");
 my $out_special_circu = catfile($tmp_dir, $id . "_contigs_circu_temp.fasta");
 
 # Reading fasta file of the contigs
+my $num_seqs = 0;
 open my $fa, '<', $fasta_contigs;
 my %seq_base;
 my $id_seq="";
 while(<$fa>){
 	$_=~s/\r\n/\n/g; #Cas d'un fichier windows ##AJOUT
 	chomp($_);
-	if ($_=~/^>(\S*)/){$id_seq=$1;}
+	if ($_=~/^>(\S*)/){$id_seq=$1; $num_seqs += 1;}
 	else{$seq_base{$id_seq}.=$_;}
 }
 close $fa;
@@ -83,10 +92,79 @@ for my $id_contig (
 close $s1;
 close $s2;
 
-# Gene prediction for all contigs
+# First, we split $in_file into pieces, one per $n_parts.
+# But we have to account for the fact that a user might feed VirSorter
+# a fasta file with a single sequence... or request just 1 CPU for some reason.
+my $n_parts = $n_cpus;
+my $filemax = $n_parts - 1;
+if ( $num_seqs <= $n_parts ){$n_parts = $num_seqs; $filemax = $num_seqs - 1;}
+
+my $cmd_split_fasta = "pyfasta split -n $n_parts $in_file";
+print "Splitting $in_file into $n_parts pieces...";
+`echo $cmd_split_fasta`;
+my $out = `$cmd_split_fasta`;
+print "\t$out";
+
+if ( $n_parts == 1 ){
+    my $cmd_mv_single = "mv $tmp_dir/$id"."_nett.split.fasta $tmp_dir/$id"."_nett.0.fasta";
+    `echo $cmd_mv_single`;
+    my $out = `$cmd_mv_single`;
+}
+
+my $pm = Parallel::ForkManager->new($n_parts);
+foreach my $iter (0 .. $filemax) {
+    $pm->start and next;
+    my $filenum = $iter;
+    if ($n_parts > 10) {
+        $filenum = sprintf("%02d", $filenum);
+    }
+
+    my $process_file = catfile($tmp_dir, $id . "_nett.$filenum.fasta");
+
+    if ($gene_caller eq "prodigal"){
+        my $out_gff_part = catfile($tmp_dir, $id . "_nett.$filenum.gff");
+        my $prodigal_cmd = "$path_to_prodigal -q -p meta -f gff -i $process_file -o $out_gff_part";
+        `echo $prodigal_cmd`;
+        $out = `$prodigal_cmd`;
+    }
+    else{
+        my $out_mga_part = catfile($tmp_dir, $id . "_mga.$filenum.predict");
+        my $mga_cmd = `$path_to_mga $process_file -m > $out_mga_part`;
+        `echo $mga_cmd`;
+        $out = `$mga_cmd`;
+    }
+    $pm->finish;
+}
+$pm->wait_all_children;
+
+# If prodigal was run, combine the outputs and then convert to mga-formatted output.
+my $gff_cmd = catfile($Bin, "gff3_to_mga.pl");
 my $out_file= $tmp_dir."/".$id."_mga.predict";
-print "mga ($path_to_mga) $in_file -m > $out_file\n";
-my $mga=`$path_to_mga $in_file -m > $out_file`;
+
+if ($gene_caller eq "prodigal"){
+    my $out_gff = catfile($tmp_dir, $id . "_nett.gff");
+    say "\nGenerating combined $out_gff using $gene_caller ... ";
+    my $cmd_combine_gff = "cat $tmp_dir/$id"."_nett.*.gff > $out_gff; "
+        . "rm $tmp_dir/$id"."_nett.*.gff";
+    print $cmd_combine_gff;
+    $out = `$cmd_combine_gff`;
+    say "\t$out";
+    
+    # Next we use a parser to convert Prodigal's gff3 output to the same output format 
+    # as the mga gene caller to make it compatible with the remainder of this script.
+    my $cmd_gff_to_mga = "$gff_cmd $out_gff $out_file";
+    print $cmd_gff_to_mga;
+    $out = `$cmd_gff_to_mga`;
+    say "\t$out";
+}
+# If MGA was run, just combine the outputs.
+else{
+    say "\nGenerating combined $out_file using $gene_caller ... ";
+    my $cmd_combine_mga = "cat $tmp_dir/$id"."_mga.*.predict > $out_file; "
+        . "rm $tmp_dir/$id"."_mga.*.predict";
+    $out = `$cmd_combine_mga`;
+    say "\t$out";
+}
 
 # Special prediction for circular contigs if we have some
 my $out_file_circu="";
@@ -112,7 +190,14 @@ if (-e $circu_file){
 	close $s3;
 	$out_file_circu= $tmp_dir."/".$id."_special_circus_mga.predict";
 	if ($n_circu>0){
-		my $mga=`$path_to_mga $out_special_circu -m > $out_file_circu`;
+        if ($gene_caller eq "mga") {
+            my $mga=`$path_to_mga $out_special_circu -m > $out_file_circu`;
+        }
+        elsif ($gene_caller eq "prodigal") {
+            my $out_file_circu_gff= $tmp_dir."/".$id."_special_circus_mga.gff";
+            my $prodigal=`$path_to_prodigal -q -p meta -f gff -i $out_special_circu -o $out_file_circu_gff`;
+            my $cmd_gff_to_mga = `$gff_cmd $out_file_circu_gff $out_file_circu`;
+        }
 	}
 	else{
 		`touch $out_file_circu`;
@@ -359,3 +444,8 @@ foreach(sort {$order_contig{$a} <=> $order_contig{$b} } keys %predict){
 close $fa_s;
 close $out_s;
 close $prot_s;
+
+say "Cleaning up...";
+my $rm_files = "rm $tmp_dir/$id"."_nett.*.fasta $tmp_dir/$id"."*.fasta.*";
+$out = `$rm_files`;
+say "\t$out";

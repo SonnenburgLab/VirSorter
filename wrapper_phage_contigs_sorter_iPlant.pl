@@ -20,6 +20,7 @@ Options:
                  mostly viral to force the use of generic metrics instead of 
                  calculated from the whole dataset. (default: off)
   --data-dir     Path to "virsorter-data" directory (e.g. /path/to/virsorter-data)
+  --prodigal     Use prodigal to do gene calling isntead of mga (default: mga)
   --diamond      Use diamond (in "--more-sensitive" mode) instead of blastp. 
                  Diamond is much faster than blastp and may be useful for adding 
 		 many custom phages, or for processing extremely large Fasta files. 
@@ -66,6 +67,7 @@ my $data_dir        = '/data';
 my $n_cpus          = 4;
 my $wdir            = catdir(cwd(), 'virsorter-out');
 my $diamond         = 0;
+my $prodigal        = 0;
 my $blastp          = 'blastp';
 my $keepdb          = 0;
 my $debug           = 0;
@@ -82,6 +84,7 @@ GetOptions(
    'data-dir:s'  => \$data_dir,
    'ncpu:i'      => \$n_cpus,
    'diamond'     => \$diamond,
+   'prodigal'    => \$prodigal,
    'keep-db'     => \$keepdb,
    'h|help'      => \$help,
    'debug'       => \$debug,
@@ -103,7 +106,13 @@ if ($choice_database < 1 || $choice_database > 3) {
 
 if ($diamond == 1) {
     $blastp = 'diamond';
-    say "This VirSorter run uses `diamond` (Buchfink et al., Nature Methods 2015) instead of `blastp`.\n";
+    say "This VirSorter run uses `diamond` (Buchfink et al., Nature Methods 2015) instead of `blastp`.";
+}
+
+my $gene_caller = "mga";
+if ($prodigal == 1) {
+    $gene_caller = "prodigal";
+    say "This VirSorter run uses `prodigal -p meta` (Hyatt et al., Bioinformatics 2012) instead of `mga`.\n";
 }
 
 say map { sprintf "%-15s: %s\n", @$_ } (
@@ -230,7 +239,7 @@ if ( !-d $fastadir ) {
     my $path_script_step_1 
         = catfile($script_dir,"Step_1_contigs_cleaning_and_gene_prediction.pl");
     my $cmd_step_1 
-        = "$path_script_step_1 $code_dataset $fastadir $fna_file $nb_gene_th "
+        = "$path_script_step_1 $code_dataset $fastadir $fna_file $nb_gene_th $n_cpus $gene_caller "
         . ">> $log_out 2>> $log_err";
     say "Started at ".(localtime);
     say "Step 0.5 : $cmd_step_1";
@@ -421,12 +430,12 @@ while ( (-e $new_prots_to_cluster || $r_n == -1) && ($r_n<=10) ) {
                 );
                 my $add_first = join(' ',
                     "$script_custom_phage $custom_phage $dir_Phage_genes/",
-                    "$dir_revision/db $n_cpus >> $log_out 2>> $log_err"
+                    "$dir_revision/db $n_cpus $gene_caller >> $log_out 2>> $log_err"
                 );
                 if ($diamond == 1) {
                     $add_first = join(' ',
 		            "$script_custom_phage $custom_phage $dir_Phage_genes/",
-			        "$dir_revision/db $n_cpus diamond >> $log_out 2>> $log_err"
+			        "$dir_revision/db $n_cpus $gene_caller diamond >> $log_out 2>> $log_err"
                     );
 		        }
 				    

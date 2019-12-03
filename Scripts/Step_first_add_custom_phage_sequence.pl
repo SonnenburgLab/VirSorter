@@ -15,20 +15,22 @@ use feature 'say';
 # Argument 1 : db-in directory
 # Argument 2 : db-out directory
 # Argument 3 : number of CPUs to use
-# Argument 4 : (optional) specify "diamond" if this script should use diamond instead of blastp
+# Argument 4 : gene caller to use (default: mga)
+# Argument 5 : (optional) specify "diamond" if this script should use diamond instead of blastp
 
-if (($ARGV[0] eq "-h") || ($ARGV[0] eq "--h") || ($ARGV[0] eq "-help" )|| ($ARGV[0] eq "--help") || (!defined($ARGV[3])))
+if (($ARGV[0] eq "-h") || ($ARGV[0] eq "--h") || ($ARGV[0] eq "-help" )|| ($ARGV[0] eq "--help") || (!defined($ARGV[4])))
 {
 	print "# Script to generate a new db with putative new clusters
 # Argument 0 : fasta of custom phages
 # Argument 1 : db-in directory
 # Argument 2 : db-out directory
 # Argument 3 : number of CPUs to use
-# Argument 4 : (optional) specify \"diamond\" if this script should use diamond instead of blastp\n";
+# Argument 4 : gene caller to use (default: mga)
+# Argument 5 : (optional) specify \"diamond\" if this script should use diamond instead of blastp\n";
 	die "\n";
 }
 my $diamond = 0;
-if (defined($ARGV[4])) {
+if (defined($ARGV[5])) {
     $diamond = 1;
     print "Diamond was used here instead of blastp.\n";
 }
@@ -40,6 +42,7 @@ my $path_to_muscle      = which("muscle")         or die "No muscle\n";
 my $path_to_hmmbuild    = which("hmmbuild")       or die "No hmmbuild\n";
 my $path_to_hmmpress    = which("hmmpress")       or die "No hmmpress\n";
 my $path_hmmsearch      = which("hmmsearch")      or die "No hmmsearch\n";
+my $path_to_prodigal  = which('prodigal');
 my $path_to_mga       = which('mga_linux_ia64');
 my $path_to_mga_bis   = which('mga');
 if ($path_to_mga eq ""){
@@ -59,7 +62,8 @@ my $fasta_contigs=$ARGV[0];
 my $db_in=$ARGV[1];
 my $db_out=$ARGV[2];
 my $n_cpus=$ARGV[3];
-#my $n_cpus=8;
+my $gene_caller=$ARGV[4];
+if ($gene_caller eq "prodigal"){print "Prodigal was used here instead of mga.\n";}
 
 my $tmp_dir=$db_out."/initial_db";
 `mkdir $tmp_dir`;
@@ -87,12 +91,82 @@ while(<$fa>){
 	else{$seq_base{$id_seq}.=$_;}
 }
 close $fa;
+my $num_seqs = $i;
 
+my $in_file = "$tmp_dir"."Custom_phages.fasta";
+`cp $fasta_contigs $in_file`;
 
-# Predict genes on the new phages
-my $out_file= $tmp_dir."/Custom_phages_mga.predict";
-print "$path_to_mga $fasta_contigs -m > $out_file\n";
-my $mga=`$path_to_mga $fasta_contigs -m > $out_file`;
+my $n_parts = $n_cpus;
+my $filemax = $n_parts - 1;
+if ( $num_seqs <= $n_parts ){$n_parts = $num_seqs; $filemax = $num_seqs - 1;}
+
+my $cmd_split_fasta = "pyfasta split -n $n_parts $in_file";
+print "Splitting $in_file into $n_parts pieces...";
+`echo $cmd_split_fasta`;
+my $out = `$cmd_split_fasta`;
+print "\t$out";
+
+if ( $n_parts == 1 ){
+    my $cmd_mv_single = "mv $tmp_dir"."Custom_phages.split.fasta $tmp_dir"."Custom_phages.0.fasta";
+    `echo $cmd_mv_single`;
+    my $out = `$cmd_mv_single`;
+}
+
+my $pm = Parallel::ForkManager->new($n_parts);
+foreach my $iter (0 .. $filemax) {
+    $pm->start and next;
+    my $filenum = $iter;
+    if ($n_parts > 10) {
+        $filenum = sprintf("%02d", $filenum);
+    }
+
+    my $process_file = catfile($tmp_dir, "Custom_phages.$filenum.fasta");
+
+    if ($gene_caller eq "prodigal"){
+    	my $out_gff_part = catfile($tmp_dir, "Custom_phages.$filenum.gff");
+    	my $prodigal_cmd = "$path_to_prodigal -q -p meta -f gff -i $process_file -o $out_gff_part";
+    	`echo $prodigal_cmd`;
+    	$out = `$prodigal_cmd`;
+    }
+    else{
+    	my $out_mga_part = catfile($tmp_dir, "Custom_phages_mga.$filenum.predict");
+    	my $mga_cmd = `$path_to_mga $process_file -m > $out_mga_part`;
+    	`echo $mga_cmd`;
+    	$out = `$mga_cmd`;
+    }
+    $pm->finish;
+}
+$pm->wait_all_children;
+
+# If prodigal was run, combine the outputs and then convert to mga-formatted output.
+my $gff_cmd = catfile($Bin, "gff3_to_mga.pl");
+my $out_file= $tmp_dir."Custom_phages_mga.predict";
+
+if ($gene_caller eq "prodigal"){
+	my $out_gff = catfile($tmp_dir, "Custom_phages.gff");
+	say "\nGenerating combined $out_gff using $gene_caller ... ";
+    my $cmd_combine_gff = "cat $tmp_dir"."Custom_phages.*.gff > $out_gff; "
+        . "rm $tmp_dir"."Custom_phages.*.gff";
+    print $cmd_combine_gff;
+    $out = `$cmd_combine_gff`;
+    say "\t$out";
+    
+    # Next we use a parser to convert Prodigal's gff3 output to the same output format 
+    # as the mga gene caller to make it compatible with the remainder of this script.
+    my $cmd_gff_to_mga = "$gff_cmd $out_gff $out_file";
+    print $cmd_gff_to_mga;
+    $out = `$cmd_gff_to_mga`;
+    say "\t$out";
+}
+# If MGA was run, just combine the outputs.
+else{
+	say "\nGenerating combined $out_file using $gene_caller ... ";
+	my $cmd_combine_mga = "cat $tmp_dir"."Custom_phages_mga.*.predict > $out_file; "
+        . "rm $tmp_dir"."Custom_phages_mga.*.predict";
+    $out = `$cmd_combine_mga`;
+    say "\t$out";
+}
+
 my %order_gene;
 my $n2=0;
 open my $txt,"<",$out_file;
@@ -172,25 +246,13 @@ foreach my $id (sort {$order_contig{$a} <=> $order_contig{$b} } keys %predict){
 			chop($prot_sequence);
 		}
 		my $id_out=$id."-".$name;
-		print $id_out."\t".$start."\t".$stop."\t".$sens."\t".$frame."\n";
-		print $prot_sequence."\n";
+		#print $id_out."\t".$start."\t".$stop."\t".$sens."\t".$frame."\n";
+		#print $prot_sequence."\n";
 		print $faa ">$id_out\n$prot_sequence\n";
 		$check_prot{$id_out}=1;
 	}
 }
 close $faa;
-### OLD BELOW ###
-# # Clustering the proteins
-# # - 1 - Hmmsearch vs the original db
-# my $out_hmmsearch=$tmp_dir."New_prots_vs_Phagedb.tab";
-# my $out_hmmsearch_bis=$tmp_dir."New_prots_vs_Phagedb.out";
-# my $cmd_hmm_phage="$path_hmmsearch --tblout $out_hmmsearch --cpu $n_cpus -o $out_hmmsearch_bis --noali $db_phage $prot_file >> $log_out 2>> $log_err";
-# print "Step 0.9 : $cmd_hmm_phage\n";
-# `echo $cmd_hmm_phage >> $log_out 2>> $log_err`;
-# my $out=`$cmd_hmm_phage`;
-# print "$out\n";
-### OLD ABOVE ###
-### NEW BELOW ###
 # First, we split $prot_file into pieces, one per $n_cpus.
 # my $prot_file=$tmp_dir."/Custom_phages_mga_prots.fasta";
 my $filemax = $n_cpus - 1;
@@ -228,17 +290,16 @@ foreach my $iter (0 .. $filemax) {
 $pm->wait_all_children;
 
 say "\nGenerating $out_hmmsearch ... ";
-my $cmd_combine = "cat $tmp_dir/New_prots_vs_Phagedb.*.tab > $out_hmmsearch; "
-    . "rm $tmp_dir/New_prots_vs_Phagedb.*.tab";
+my $cmd_combine = "cat $tmp_dir"."New_prots_vs_Phagedb.*.tab > $out_hmmsearch; "
+    . "rm $tmp_dir"."New_prots_vs_Phagedb.*.tab";
 $out = `$cmd_combine`;
 say "\t$out";
 
 say "\nGenerating $out_hmmsearch_bis ... ";
-my $cmd_combine_bis = "cat $tmp_dir/New_prots_vs_Phagedb.*.out > $out_hmmsearch_bis; "
-    . "rm $tmp_dir/New_prots_vs_Phagedb.*.out";
+my $cmd_combine_bis = "cat $tmp_dir"."New_prots_vs_Phagedb.*.out > $out_hmmsearch_bis; "
+    . "rm $tmp_dir"."New_prots_vs_Phagedb.*.out";
 $out = `$cmd_combine_bis`;
 say "\t$out";
-### NEW ABOVE ###
 
 open(HMM,"<$out_hmmsearch") || die ("pblm opening file $out_hmmsearch\n");
 my $score_th=200;
@@ -261,7 +322,7 @@ while(<HMM>){
 }
 close HMM;
 # - 2 - All which does not match a known -> get it
-my $prot_file_to_cluster=$tmp_dir."/Custom_phages_mga_prots-to-cluster.fasta";
+my $prot_file_to_cluster=$tmp_dir."Custom_phages_mga_prots-to-cluster.fasta";
 my $tag=0;
 my %seq_temp;
 open(PROT,"<$prot_file") || die ("pblm opening file $prot_file\n");
