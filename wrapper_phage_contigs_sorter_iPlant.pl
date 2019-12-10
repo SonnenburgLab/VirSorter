@@ -186,8 +186,8 @@ elsif ($choice_database == 3) {
         'euk-virus', 'Phage_Clusters_current.tab');
 }
 
-my $db_PFAM_a = catfile($data_dir, 'PFAM_27', 'Pfam-A.hmm');
-my $db_PFAM_b = catfile($data_dir, 'PFAM_27', 'Pfam-B.hmm');
+my $db_PFAM_a = catfile($data_dir, 'PFAM_32', 'Pfam-A.hmm');
+#my $db_PFAM_b = catfile($data_dir, 'PFAM_27', 'Pfam-B.hmm');
 
 my $out = "";
 
@@ -261,7 +261,11 @@ if (!(-e $fasta_file_prots && -e $fasta_contigs_nett)){
 # Match against PFAM, once for all
 # compare to PFAM a then b (hmmsearch)
 
-# First, we split $fasta_file_prots into pieces, one per $n_cpus.
+# First, we determine the number of protein sequences we're doing hmmsearch on.
+my $num_prot_hits=`grep -c ">" $fasta_file_prots`;
+$num_prot_hits =~ s/^\s+|\s+$//g;
+
+# Then, we split $fasta_file_prots into pieces, one per $n_cpus.
 my $filemax = $n_cpus - 1;
 my $cmd_split_fasta = "pyfasta split -n $n_cpus $fasta_file_prots";
 say "Splitting $fasta_file_prots into $n_cpus pieces...";
@@ -286,7 +290,7 @@ if (!(-e $out_hmmsearch_pfama)) {
             my $out_hmmsearch_pfama_part     = catfile($wdir, "Contigs_prots_vs_PFAMa.$filenum.tab");
             my $out_hmmsearch_pfama_bis_part = catfile($wdir, "Contigs_prots_vs_PFAMa.$filenum.out");
             my $cmd_hmm_pfama
-                = "$path_hmmsearch --tblout $out_hmmsearch_pfama_part --cpu 0 "
+                = "$path_hmmsearch --cut_ga -Z $num_prot_hits --tblout $out_hmmsearch_pfama_part --cpu 0 "
                 . "-o $out_hmmsearch_pfama_bis_part --noali $db_PFAM_a $process_file "
                 . ">> $log_out 2>> $log_err";
 
@@ -319,48 +323,51 @@ if (!(-e $out_hmmsearch_pfama)) {
 my $out_hmmsearch_pfamb     = catfile($wdir, 'Contigs_prots_vs_PFAMb.tab');
 my $out_hmmsearch_pfamb_bis = catfile($wdir, 'Contigs_prots_vs_PFAMb.out');
 
-if (!(-e $out_hmmsearch_pfamb)) {
-    my $pm = Parallel::ForkManager->new($n_cpus);
-        foreach my $iter (0 .. $filemax) {
-            $pm->start and next;
-            my $filenum = $iter;
-            if ($n_cpus > 10) {
-                $filenum = sprintf("%02d", $filenum);
-            }
+# if (!(-e $out_hmmsearch_pfamb)) {
+#     my $pm = Parallel::ForkManager->new($n_cpus);
+#         foreach my $iter (0 .. $filemax) {
+#             $pm->start and next;
+#             my $filenum = $iter;
+#             if ($n_cpus > 10) {
+#                 $filenum = sprintf("%02d", $filenum);
+#             }
 
-            my $process_file = catfile($fastadir, $code_dataset . "_prots.$filenum.fasta");
+#             my $process_file = catfile($fastadir, $code_dataset . "_prots.$filenum.fasta");
             
-            my $out_hmmsearch_pfamb_part     = catfile($wdir, "Contigs_prots_vs_PFAMb.$filenum.tab");
-            my $out_hmmsearch_pfamb_bis_part = catfile($wdir, "Contigs_prots_vs_PFAMb.$filenum.out");
-            my $cmd_hmm_pfamb
-                = "$path_hmmsearch --tblout $out_hmmsearch_pfamb_part --cpu 0 "
-                . "-o $out_hmmsearch_pfamb_bis_part --noali $db_PFAM_b $process_file "
-                . ">> $log_out 2>> $log_err";
+#             my $out_hmmsearch_pfamb_part     = catfile($wdir, "Contigs_prots_vs_PFAMb.$filenum.tab");
+#             my $out_hmmsearch_pfamb_bis_part = catfile($wdir, "Contigs_prots_vs_PFAMb.$filenum.out");
+#             my $cmd_hmm_pfamb
+#                 = "$path_hmmsearch --tblout $out_hmmsearch_pfamb_part --cpu 0 "
+#                 . "-o $out_hmmsearch_pfamb_bis_part --noali $db_PFAM_b $process_file "
+#                 . ">> $log_out 2>> $log_err";
 
-            say "Started at ".(localtime);
-            say "Step 0.9 : $cmd_hmm_pfamb\n";
+#             say "Started at ".(localtime);
+#             say "Step 0.9 : $cmd_hmm_pfamb\n";
 
-            `echo $cmd_hmm_pfamb >> $log_out 2>> $log_err`;
-            $out = `$cmd_hmm_pfamb`;
-            say "\t$out";
+#             `echo $cmd_hmm_pfamb >> $log_out 2>> $log_err`;
+#             $out = `$cmd_hmm_pfamb`;
+#             say "\t$out";
 
-            say "Finished Step 0.9 on $process_file";
-            $pm->finish;
-        }
-    $pm->wait_all_children;
+#             say "Finished Step 0.9 on $process_file";
+#             $pm->finish;
+#         }
+#     $pm->wait_all_children;
 
-    say "\nGenerating $out_hmmsearch_pfamb ... ";
-    my $cmd_combine_pfamb = "cat $wdir/Contigs_prots_vs_PFAMb.*.tab > $out_hmmsearch_pfamb; "
-        . "rm $wdir/Contigs_prots_vs_PFAMb.*.tab";
-    $out = `$cmd_combine_pfamb`;
-    say "\t$out";
+#     say "\nGenerating $out_hmmsearch_pfamb ... ";
+#     my $cmd_combine_pfamb = "cat $wdir/Contigs_prots_vs_PFAMb.*.tab > $out_hmmsearch_pfamb; "
+#         . "rm $wdir/Contigs_prots_vs_PFAMb.*.tab";
+#     $out = `$cmd_combine_pfamb`;
+#     say "\t$out";
 
-    say "Generating $out_hmmsearch_pfamb_bis ... ";
-    my $cmd_combine_pfamb_bis = "cat $wdir/Contigs_prots_vs_PFAMb.*.out > $out_hmmsearch_pfamb_bis; "
-        . "rm $wdir/Contigs_prots_vs_PFAMb.*.out";
-    $out = `$cmd_combine_pfamb_bis`;
-    say "\t$out";
-}
+#     say "Generating $out_hmmsearch_pfamb_bis ... ";
+#     my $cmd_combine_pfamb_bis = "cat $wdir/Contigs_prots_vs_PFAMb.*.out > $out_hmmsearch_pfamb_bis; "
+#         . "rm $wdir/Contigs_prots_vs_PFAMb.*.out";
+#     $out = `$cmd_combine_pfamb_bis`;
+#     say "\t$out";
+# }
+
+$out = `touch $out_hmmsearch_pfamb; touch $out_hmmsearch_pfamb_bis`;
+say "\t$out";
 
 # Now work on the phage gene catalog
 
@@ -526,7 +533,7 @@ while ( (-e $new_prots_to_cluster || $r_n == -1) && ($r_n<=10) ) {
                     catfile($dir_revision, "Contigs_prots_vs_New_clusters.$filenum.out");
 
                 my $cmd_hmm_cluster = join(' ',
-                    "$path_hmmsearch --tblout $out_hmmsearch_new_part --cpu 0",
+                    "$path_hmmsearch -Z $num_prot_hits --tblout $out_hmmsearch_new_part --cpu 0",
                     "-o $out_hmmsearch_bis_new_part --noali $new_db_profil",
                     "$process_file >> $log_out 2>> $log_err"
                 );

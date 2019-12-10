@@ -253,7 +253,12 @@ foreach my $id (sort {$order_contig{$a} <=> $order_contig{$b} } keys %predict){
 	}
 }
 close $faa;
-# First, we split $prot_file into pieces, one per $n_cpus.
+
+# First, we determine the number of protein sequences we're doing hmmsearch on.
+my $num_prot_hits=`grep -c ">" $prot_file`;
+$num_prot_hits =~ s/^\s+|\s+$//g;
+
+# Then, we split $prot_file into pieces, one per $n_cpus.
 # my $prot_file=$tmp_dir."/Custom_phages_mga_prots.fasta";
 my $filemax = $n_cpus - 1;
 my $cmd_split_fasta = "pyfasta split -n $n_cpus $prot_file";
@@ -277,7 +282,7 @@ foreach my $iter (0 .. $filemax) {
     
     my $out_hmmsearch_part=$tmp_dir."New_prots_vs_Phagedb.$filenum.tab";
     my $out_hmmsearch_bis_part=$tmp_dir."New_prots_vs_Phagedb.$filenum.out";
-    my $cmd_hmm_phage="$path_hmmsearch --tblout $out_hmmsearch_part --cpu 0 -o $out_hmmsearch_bis_part "
+    my $cmd_hmm_phage="$path_hmmsearch -Z $num_prot_hits --tblout $out_hmmsearch_part --cpu 0 -o $out_hmmsearch_bis_part "
         . " --noali $db_phage $process_file >> $log_out 2>> $log_err";
     print "Step 0.9 : $cmd_hmm_phage\n";
     `echo $cmd_hmm_phage >> $log_out 2>> $log_err`;
