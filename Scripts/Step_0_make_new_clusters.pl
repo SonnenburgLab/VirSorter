@@ -100,7 +100,7 @@ print "Cat : $cmd_cat\n";
 my $out_blast=catfile($r_dir, "pool_unclustered-and-new-proteins-vs-new-proteins.tab");
 my $cmd_blast="$path_to_blastp -query $pool_new -db $db -out $out_blast -outfmt 6 -num_threads $n_cpus -evalue 0.00001";
 if ($diamond == 1) {
-    $cmd_blast="$path_to_diamond blastp --query $pool_new --db $db --out $out_blast --outfmt 6 -b 2 --threads $n_cpus -k 500 --evalue 0.00001 --more-sensitive";
+    $cmd_blast="$path_to_diamond blastp --quiet --query $pool_new --db $db --out $out_blast --outfmt 6 -b 2 --threads $n_cpus -k 500 --evalue 0.00001 --more-sensitive";
 }
 print "$cmd_blast\n";
 $out=`$cmd_blast`;

@@ -368,7 +368,7 @@ print "Cat : $cmd_cat\n";
 my $out_blast=$tmp_dir."pool_unclustered-and-custom-phages-vs-custom-phages.tab";
 my $cmd_blast="$path_to_blastp -query $prot_file_to_cluster -db $db -out $out_blast -outfmt 6 -num_threads $n_cpus -evalue 0.00001"; # On 10 cores to keep a few alive for the rest of the scripts
 if ($diamond == 1) {
-    $cmd_blast="$path_to_diamond blastp --query $prot_file_to_cluster --db $db --out $out_blast --outfmt 6 --threads $n_cpus -k 500 -b 2 --evalue 0.00001 --more-sensitive";
+    $cmd_blast="$path_to_diamond blastp --quiet --query $prot_file_to_cluster --db $db --out $out_blast --outfmt 6 --threads $n_cpus -k 500 -b 2 --evalue 0.00001 --more-sensitive";
 }
 print "$cmd_blast\n";
 $out=`$cmd_blast`;

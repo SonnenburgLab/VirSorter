@@ -241,10 +241,10 @@ while (my @vals = $it->()){
 		else{
 			### reading the c program output to fill the match hash table / and removing overlap
 			## Now go execute the C program
-			print $line_input."\n";
+			#print $line_input."\n";
 			my $path_to_c_script= catfile($script_dir, "Sliding_windows_3");
 			my $c_cmd="printf \"$line_input\" | $path_to_c_script | sort -r -n -k 4 ";
-			print $c_cmd."\n";
+			#print $c_cmd."\n";
 			my $out=`$c_cmd`;
 # 			print "### RESULT FROM C: $out\n";
 			@tab_lines=split("\n",$out);

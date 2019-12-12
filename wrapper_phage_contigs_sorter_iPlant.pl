@@ -585,7 +585,7 @@ while ( (-e $new_prots_to_cluster || $r_n == -1) && ($r_n<=10) ) {
 	if ($diamond == 1) {
 	    $cmd_blast_unclustered = join(' ',
                 $path_diamond,
-                "blastp --query $fasta_file_prots",
+                "blastp --quiet --query $fasta_file_prots",
                 "--db $blastable_unclustered",
                 "--out $out_blast_new_unclustered",
                 "--threads $n_cpus",
